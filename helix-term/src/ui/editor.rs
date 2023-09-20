@@ -22,6 +22,7 @@ use helix_core::{
     visual_offset_from_block, Change, Position, Range, Selection, Transaction,
 };
 use helix_view::{
+    completion::CompletionItem,
     document::{Mode, SavePoint, SCRATCH_BUFFER_NAME},
     editor::{CompleteAction, CursorShapeConfig},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
@@ -34,7 +35,7 @@ use std::{mem::take, num::NonZeroUsize, path::PathBuf, rc::Rc, sync::Arc};
 use tui::{buffer::Buffer as Surface, text::Span};
 
 use super::document::LineDecoration;
-use super::{completion::CompletionItem, statusline};
+use super::statusline;
 
 pub struct EditorView {
     pub keymaps: Keymaps,

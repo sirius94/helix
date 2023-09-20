@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use futures_util::stream::FuturesUnordered;
+use futures_util::Future;
 use helix_core::chars::char_is_word;
 use helix_core::syntax::LanguageServerFeature;
 use helix_event::{
@@ -11,6 +12,7 @@ use helix_event::{
 };
 use helix_lsp::lsp;
 use helix_lsp::util::pos_to_lsp_pos;
+use helix_view::completion::{request_completion_options, CompletionItem};
 use helix_view::document::{Mode, SavePoint};
 use helix_view::handlers::lsp::{CompletionEvent, CompletionTrigger};
 use helix_view::Editor;
@@ -27,7 +29,7 @@ use crate::job::{dispatch, dispatch_blocking};
 use crate::keymap::MappableCommand;
 use crate::ui::editor::InsertEvent;
 use crate::ui::lsp::SignatureHelp;
-use crate::ui::{self, CompletionItem, Popup};
+use crate::ui::{self, Popup};
 
 use super::Handlers;
 
@@ -149,7 +151,7 @@ fn request_completion(
     let trigger_text = text.slice(..cursor);
 
     let mut seen_language_servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
+    let lsp_futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
         .filter(|ls| seen_language_servers.insert(ls.id()))
         .map(|ls| {
@@ -196,7 +198,7 @@ fn request_completion(
                 .into_iter()
                 .map(|item| CompletionItem {
                     item,
-                    language_server_id,
+                    language_server_id: Some(language_server_id),
                     resolved: false,
                 })
                 .collect();
@@ -205,16 +207,29 @@ fn request_completion(
         })
         .collect();
 
+    let futures: FuturesUnordered<_> =
+        request_completion_options(editor.completion_sources.clone(), text.clone(), cursor)
+            .collect();
+
     let future = async move {
         let mut items = Vec::new();
-        while let Some(lsp_items) = futures.next().await {
-            match lsp_items {
-                Ok(mut lsp_items) => items.append(&mut lsp_items),
-                Err(err) => {
-                    log::debug!("completion request failed: {err:?}");
-                }
-            };
+        async fn append_items(
+            items: &mut Vec<CompletionItem>,
+            mut futures: FuturesUnordered<
+                impl Future<Output = anyhow::Result<Vec<CompletionItem>>>,
+            >,
+        ) {
+            while let Some(new_items) = futures.next().await {
+                match new_items {
+                    Ok(mut new_items) => items.append(&mut new_items),
+                    Err(err) => {
+                        log::debug!("completion request failed: {err:?}");
+                    }
+                };
+            }
         }
+        append_items(&mut items, lsp_futures).await;
+        append_items(&mut items, futures).await;
         items
     };
 

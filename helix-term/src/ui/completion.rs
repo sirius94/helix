@@ -3,6 +3,7 @@ use crate::{
     handlers::trigger_auto_completion,
 };
 use helix_view::{
+    completion::CompletionItem,
     document::SavePoint,
     editor::CompleteAction,
     handlers::lsp::SignatureHelpInvoked,
@@ -86,13 +87,6 @@ impl menu::Item for CompletionItem {
             }),
         ])
     }
-}
-
-#[derive(Debug, PartialEq, Default, Clone)]
-pub struct CompletionItem {
-    pub item: lsp::CompletionItem,
-    pub language_server_id: usize,
-    pub resolved: bool,
 }
 
 /// Wraps a Menu.
@@ -217,10 +211,10 @@ impl Completion {
             let (view, doc) = current!(editor);
 
             macro_rules! language_server {
-                ($item:expr) => {
+                ($language_server_id:expr) => {
                     match editor
                         .language_servers
-                        .get_by_id($item.language_server_id)
+                        .get_by_id($language_server_id)
                     {
                         Some(ls) => ls,
                         None => {
@@ -257,11 +251,17 @@ impl Completion {
                     // always present here
                     let item = item.unwrap();
 
+                    let offset_encoding = if let Some(ls_id) = item.language_server_id {
+                        language_server!(ls_id).offset_encoding()
+                    } else {
+                        OffsetEncoding::Utf8
+                    };
+
                     let transaction = item_to_transaction(
                         doc,
                         view.id,
                         &item.item,
-                        language_server!(item).offset_encoding(),
+                        offset_encoding,
                         trigger_offset,
                         true,
                         replace_mode,
@@ -278,21 +278,20 @@ impl Completion {
                     // always present here
                     let mut item = item.unwrap().clone();
 
-                    let language_server = language_server!(item);
-                    let offset_encoding = language_server.offset_encoding();
+                    let offset_encoding = if let Some(ls_id) = item.language_server_id {
+                        let language_server = language_server!(ls_id);
 
-                    let language_server = editor
-                        .language_servers
-                        .get_by_id(item.language_server_id)
-                        .unwrap();
-
-                    // resolve item if not yet resolved
-                    if !item.resolved {
-                        if let Some(resolved) =
-                            Self::resolve_completion_item(language_server, item.item.clone())
-                        {
-                            item.item = resolved;
-                        }
+                        // resolve item if not yet resolved
+                        if !item.resolved {
+                            if let Some(resolved) =
+                                Self::resolve_completion_item(language_server, item.item.clone())
+                            {
+                                item.item = resolved;
+                            }
+                        };
+                        language_server.offset_encoding()
+                    } else {
+                        OffsetEncoding::Utf8
                     };
                     // if more text was entered, remove it
                     doc.restore(view, &savepoint, true);
@@ -426,9 +425,10 @@ impl Completion {
             _ => return false,
         };
 
-        let Some(language_server) = cx
-            .editor
-            .language_server_by_id(current_item.language_server_id)
+        let Some(language_server) = 
+            current_item.language_server_id.and_then(|ls_id|
+                cx.editor.language_server_by_id(ls_id)
+            )
         else {
             return false;
         };
