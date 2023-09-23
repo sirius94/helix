@@ -1,7 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::{Ok, Result};
-use futures_util::future::{BoxFuture, Future};
 use helix_core::{chars::char_is_word, Rope, RopeSlice};
 use helix_lsp::lsp;
 
@@ -12,51 +11,22 @@ pub struct CompletionItem {
     pub resolved: bool,
 }
 
-pub trait CompletionSource: Send + Sync {
-    fn request_completion_options(
-        self: &Self,
-        doc: Rope,
-        pos: usize,
-    ) -> BoxFuture<Result<Vec<CompletionItem>>>;
-}
-
-pub fn request_completion_options(
-    completion_sources: impl IntoIterator<Item = Arc<dyn CompletionSource>>,
-    doc: Rope,
-    pos: usize,
-) -> impl Iterator<Item = impl Future<Output = Result<Vec<CompletionItem>>>> {
-    completion_sources.into_iter().map(move |source| {
-        let doc = doc.clone();
-        async move { source.request_completion_options(doc, pos).await }
-    })
-}
-
-pub struct WordCompletion;
-
-impl CompletionSource for WordCompletion {
-    fn request_completion_options(
-        self: &Self,
-        doc: Rope,
-        pos: usize,
-    ) -> BoxFuture<Result<Vec<CompletionItem>>> {
-        Box::pin(async move {
-            let prefix = find_word_prefix(&doc, pos).to_string();
-            let completions = find_word_completions(&doc, &prefix);
-            Ok(completions
-                .iter()
-                .map(|(text, _)| CompletionItem {
-                    item: lsp::CompletionItem {
-                        label: text.to_string(),
-                        detail: Some(text.to_string()),
-                        kind: Some(lsp::CompletionItemKind::TEXT),
-                        ..Default::default()
-                    },
-                    language_server_id: None,
-                    resolved: true,
-                })
-                .collect())
+pub async fn request_word_completions(doc: Rope, pos: usize) -> Result<Vec<CompletionItem>> {
+    let prefix = find_word_prefix(&doc, pos).to_string();
+    let completions = find_word_completions(&doc, &prefix);
+    Ok(completions
+        .iter()
+        .map(|(text, _)| CompletionItem {
+            item: lsp::CompletionItem {
+                label: text.to_string(),
+                detail: Some(text.to_string()),
+                kind: Some(lsp::CompletionItemKind::TEXT),
+                ..Default::default()
+            },
+            language_server_id: None,
+            resolved: true,
         })
-    }
+        .collect())
 }
 
 fn find_word_prefix(doc: &Rope, pos: usize) -> RopeSlice {

@@ -1,6 +1,5 @@
 use crate::{
     align_view,
-    completion::{CompletionSource, WordCompletion},
     document::{DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint},
     graphics::{CursorKind, Rect},
     handlers::Handlers,
@@ -928,7 +927,6 @@ pub struct Editor {
     redraw_timer: Pin<Box<Sleep>>,
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
-    pub completion_sources: Vec<Arc<dyn CompletionSource>>,
 
     pub exit_code: i32,
 
@@ -1057,7 +1055,6 @@ impl Editor {
             redraw_timer: Box::pin(sleep(Duration::MAX)),
             last_motion: None,
             last_completion: None,
-            completion_sources: vec![Arc::new(WordCompletion)],
             config,
             auto_pairs,
             exit_code: 0,
